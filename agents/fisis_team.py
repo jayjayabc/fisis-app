@@ -361,6 +361,13 @@ async def run_team(task: str) -> None:
             allowed_tools=["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent"],
             permission_mode="acceptEdits",
             system_prompt=TEAM_LEAD_SYSTEM,
+            # MCP 서버 연동: 에이전트팀이 FISIS MCP 도구를 직접 사용 가능
+            mcp_servers={
+                "fisis": {
+                    "command": "python",
+                    "args": ["mcp_server/server.py"],
+                }
+            },
             agents={
                 "data-agent":    DATA_AGENT,
                 "analyst-agent": ANALYST_AGENT,

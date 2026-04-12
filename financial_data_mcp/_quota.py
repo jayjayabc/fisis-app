@@ -68,6 +68,7 @@ class QuotaTracker:
         self.daily_limit = daily_limit
         self.quota_file = quota_file or QUOTA_FILE
         self._data: dict[str, int] = {}
+        self._dirty_count = 0
         self._load()
 
     def _load(self) -> None:
@@ -93,10 +94,18 @@ class QuotaTracker:
             pass
 
     def increment(self) -> int:
-        """오늘 카운터 1 증가. 현재 카운트 반환."""
+        """오늘 카운터 1 증가. 현재 카운트 반환.
+
+        디스크 쓰기는 10회마다 1번만 수행 (I/O 버퍼링).
+        """
         today = _today()
         self._data[today] = self._data.get(today, 0) + 1
-        self._data = _prune(self._data)
+        self._dirty_count += 1
+        # 10회마다 또는 한도 근접 시에만 디스크에 저장
+        if self._dirty_count >= 10 or self.is_near_limit():
+            self._data = _prune(self._data)
+            self._save()
+            self._dirty_count = 0
         self._save()
         return self._data[today]
 

@@ -230,16 +230,28 @@ async def test_fisis_list_statistics_extracts_list():
 
 
 @pytest.mark.asyncio
-async def test_get_api_reference_contains_expected_keys():
-    result = await server.get_api_reference()
+async def test_plan_data_query_first_call_includes_catalog():
+    """첫 호출은 전체 카탈로그 포함."""
+    server._catalog_delivered = False  # 상태 리셋
+    result = await server.plan_data_query(question="삼성전자 재무제표")
     data = json.loads(result)
+    assert "data_catalog" in data
+    assert "DART" in data["data_catalog"]
+    assert "FISIS" in data["data_catalog"]
+    assert data["data_catalog"]["DART"]["sj_div_filter"]["IS"] == "손익계산서"
+    assert data["data_catalog"]["FISIS"]["lrg_div"]["A"] == "은행"
 
-    assert "DART_REPORT" in data
-    assert "DART_CORP_CLASS" in data
-    assert "DART_SJ_DIV" in data
-    assert "FISIS_LARGE_DIV" in data
-    assert data["DART_REPORT"]["사업보고서"] == "11011"
-    assert data["DART_SJ_DIV"]["IS"] == "손익계산서"
+
+@pytest.mark.asyncio
+async def test_plan_data_query_subsequent_call_omits_catalog():
+    """2번째 이후 호출은 카탈로그 생략 (토큰 절약)."""
+    server._catalog_delivered = True  # 이미 전달된 상태
+    result = await server.plan_data_query(question="은행 판관비 비교")
+    data = json.loads(result)
+    assert "data_catalog" not in data
+    assert "note" in data
+    assert "planning_framework_reminder" in data
+    server._catalog_delivered = False  # 다른 테스트 영향 방지
 
 
 # ── 입력 검증 → 친화적 에러 메시지 ─────────────────────────────

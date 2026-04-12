@@ -75,7 +75,9 @@ def test_tracker_prunes_old_entries(tmp_path: Path):
     quota_file.write_text(json.dumps({old_date: 100, recent_date: 50}))
 
     tracker = QuotaTracker(quota_file=quota_file)
-    tracker.increment()  # prune 발동
+    # I/O 버퍼링(10회)을 충족시켜 prune+save 발동
+    for _ in range(10):
+        tracker.increment()
 
     # 35일 전 데이터는 제거되고 최근 5일 데이터는 유지
     assert old_date not in tracker._data

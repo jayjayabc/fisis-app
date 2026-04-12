@@ -242,8 +242,10 @@ _DATA_CATALOG = {
             "공시": "정기공시, 주요사항보고, 발행공시, 지분공시, 외부감사 등",
             "기업개황": "회사명, 대표자, 업종, 주소, 설립일, 상장일, 홈페이지",
         },
-        "granularity": "개별 기업 단위. 1회 호출 = 1개 기업 데이터. 다중비교는 최대 20개.",
-        "period": "사업연도(YYYY) + 보고서유형 (사업/반기/1Q/3Q)",
+        "granularity": "개별 기업 단위. 1회 호출 = 1개 기업. 다중비교 최대 20개.",
+        "period": "사업연도(YYYY) + 보고서유형 (11011=사업, 11012=반기, 11013=1Q, 11014=3Q)",
+        "sj_div_filter": {"BS": "재무상태표", "IS": "손익계산서", "CIS": "포괄손익", "CF": "현금흐름", "SCE": "자본변동"},
+        "corp_cls": {"Y": "유가증권", "K": "코스닥", "N": "코넥스", "E": "기타"},
         "strength": [
             "모든 DART 등록 기업 대상 (금융업 + 일반 기업 모두)",
             "전체 계정과목 수준 상세 재무제표",
@@ -251,9 +253,9 @@ _DATA_CATALOG = {
         ],
         "weakness": [
             "업권 전체 비교 시 기업별 개별 호출 필요 (N개 기업 = N+회 API 호출)",
-            "판관비·충당금 등 세부 항목은 전체 재무제표(full)에서만 조회 가능 (토큰 대량 소비)",
+            "판관비·충당금 등 세부 항목은 전체 재무제표(full)에서만 조회 (토큰 대량 소비)",
         ],
-        "cost_per_query": "기업당 1~2 API 호출 (quota: 일 20,000건)",
+        "cost": "기업당 1~2 API 호출 (quota 일 20,000건)",
     },
     "FISIS": {
         "full_name": "금융통계정보시스템 (fisis.fss.or.kr)",
@@ -263,29 +265,33 @@ _DATA_CATALOG = {
             "개별_금융기관": "업권 내 특정 금융기관의 통계 (finance_cd로 지정)",
             "시계열": "월별(YYYYMM) 시계열 데이터",
         },
-        "granularity": "업권 전체 또는 개별 금융기관. 1회 호출 = 업권 전체 또는 특정 기관 기간 데이터.",
+        "granularity": "업권 전체 또는 개별 금융기관. 1회 호출 = 업권 전체 데이터.",
         "period": "월별 (YYYYMM ~ YYYYMM 범위 지정)",
-        "large_divisions": {"A": "은행", "B": "비은행", "C": "보험", "D": "금융투자"},
+        "lrg_div": {"A": "은행", "B": "비은행", "C": "보험", "D": "금융투자"},
         "strength": [
-            "1회 호출로 업권 전체 금융기관 데이터 조회 (은행 전체, 보험사 전체 등)",
-            "금감원 표준 양식으로 기관 간 항목명 일관성 보장",
+            "1회 호출로 업권 전체 금융기관 데이터 조회",
+            "금감원 표준 양식으로 기관 간 항목명 일관",
             "월별 시계열로 추이 분석에 최적",
         ],
         "weakness": [
             "금융업만 대상 (삼성전자·현대차 등 일반 기업 불가)",
-            "DART보다 계정과목 수준이 제한적 (표준 통계 항목만)",
-            "통계코드(stat_cd)를 먼저 확인해야 함 (fisis_list_statistics 선행 호출)",
+            "DART보다 계정과목 수준이 제한적",
+            "통계코드(stat_cd)를 먼저 확인해야 함 (fisis_list_statistics 선행)",
         ],
-        "cost_per_query": "1~2 API 호출로 업권 전체 데이터",
+        "cost": "1~2 API 호출로 업권 전체 데이터",
     },
     "planning_framework": {
-        "step1_data_needs": "질문에서 필요한 데이터 항목을 구체적으로 파악 (어떤 재무항목? 어떤 기간? 어떤 대상?)",
-        "step2_source_selection": "DART/FISIS 카탈로그의 data_types·granularity·strength·weakness를 비교하여 최적 소스 결정",
+        "step1_data_needs": "질문에서 필요한 데이터 항목 구체적으로 파악 (어떤 재무항목? 어떤 기간? 어떤 대상?)",
+        "step2_source_selection": "DART/FISIS의 data_types·granularity·strength·weakness·cost를 비교하여 최적 소스 결정",
         "step3_cost_estimation": "예상 API 호출 횟수 산정 (DART: 기업수×호출, FISIS: 1~2회)",
         "step4_tool_sequence": "최소 호출로 데이터를 수집하는 구체적 도구 호출 순서 수립",
         "step5_fallback": "1차 소스에서 데이터가 부족하면 다른 소스로 보완할 계획 포함",
     },
 }
+
+
+# 세션 내 카탈로그 전달 여부 추적 (첫 호출에만 전체 전달)
+_catalog_delivered = False
 
 
 @mcp.tool()
@@ -295,28 +301,37 @@ async def plan_data_query(question: str) -> str:
 
     **다른 데이터 조회 도구를 호출하기 전에 반드시 이 도구를 먼저 호출하세요.**
 
-    DART와 FISIS의 데이터 구조·범위·강점·약점·비용을 종합한 카탈로그를 반환합니다.
-    이 카탈로그를 읽고, planning_framework의 5단계에 따라 최적 수집 전략을 수립한 뒤,
-    그 계획에 따라 후속 도구를 호출하세요.
+    첫 호출: DART/FISIS 데이터 카탈로그(구조·강점·약점·비용) + 플래닝 프레임워크 반환.
+    이후 호출: 카탈로그 생략, 플래닝 프레임워크만 반환 (토큰 절약).
+
+    이 카탈로그를 읽고 planning_framework 5단계에 따라 최적 수집 전략을 수립하세요.
 
     Args:
         question: 사용자의 원래 질문 (예: "시중은행 판관비 비교", "삼성전자 재무제표")
-
-    Returns:
-        DART/FISIS 데이터 카탈로그 + 플래닝 프레임워크 (JSON)
     """
+    global _catalog_delivered
+
     if not question or not question.strip():
         raise ValueError("question은 비어있을 수 없습니다")
 
-    return _json({
-        "user_question": question.strip(),
-        "data_catalog": _DATA_CATALOG,
-        "instruction": (
-            "위 카탈로그의 data_types, granularity, strength, weakness, cost_per_query를 분석하여 "
-            "planning_framework 5단계에 따라 이 질문에 대한 최적 수집 전략을 수립하세요. "
-            "전략을 수립한 후 해당 도구들을 호출하세요."
-        ),
-    })
+    if not _catalog_delivered:
+        _catalog_delivered = True
+        return _json({
+            "user_question": question.strip(),
+            "data_catalog": _DATA_CATALOG,
+            "instruction": (
+                "위 카탈로그의 data_types, granularity, strength, weakness, "
+                "cost_per_query를 분석하여 planning_framework 5단계에 따라 "
+                "최적 수집 전략을 수립하세요. 전략을 수립한 후 해당 도구들을 호출하세요."
+            ),
+        })
+    else:
+        # 2번째 이후: 카탈로그 생략 → ~130 tokens 만 소비 (vs 613)
+        return _json({
+            "user_question": question.strip(),
+            "note": "데이터 카탈로그는 이미 전달됨. 이전 카탈로그를 참고하여 planning_framework 5단계에 따라 수집 전략을 수립하세요.",
+            "planning_framework_reminder": _DATA_CATALOG["planning_framework"],
+        })
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -633,52 +648,6 @@ async def dart_quota_status() -> str:
             f"남은 {status['remaining']}건 이후 요청은 실패할 수 있습니다."
         )
     return _json(status)
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  참조 정보
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-@mcp.tool()
-@_tool_safe
-async def get_api_reference() -> str:
-    """DART·FISIS API 코드 참조표와 사용 예시를 반환합니다.
-
-    보고서코드, 법인구분, 재무제표 표 구분, 대분류 코드 등
-    API 파라미터에 필요한 코드를 한 번에 확인할 수 있습니다.
-    """
-    ref = {
-        "data_source_routing": {
-            "FISIS_우선": "업권 전체 비교/통계 (은행들, 보험사들, 금융투자 등). 1회 호출로 업권 전체 데이터.",
-            "DART_우선": "특정 기업 1~20개 분석 (삼성전자, 카카오뱅크 등). 기업별 상세 재무제표/공시.",
-            "판단기준": "금융업 업권 비교 → FISIS / 특정 기업 분석 → DART / 불확실 → fisis_list_statistics로 먼저 확인",
-        },
-        "DART_REPORT": REPORT_CODES,
-        "DART_CORP_CLASS": CORP_CLASS,
-        "DART_SJ_DIV": SJ_DIV,
-        "FISIS_LARGE_DIV": LARGE_DIVISIONS,
-        "examples": {
-            "개별기업_재무제표_DART": [
-                "1. dart_search_company(name='삼성전자') -> corp_code=00126380",
-                "2. dart_full_financial_statements(corp_code='00126380', bsns_year='2024', sj_div='IS')",
-            ],
-            "기업간_비교_DART": [
-                "1. dart_search_company 로 corp_code 2~20개 수집",
-                "2. dart_multi_company_financials(corp_codes=[...], bsns_year='2024')",
-            ],
-            "업권_통계_FISIS": [
-                "1. fisis_list_statistics(lrg_div='A') → 은행 통계목록에서 stat_cd 확인",
-                "2. fisis_get_statistics(stat_cd='...', strt_yymm='202401', end_yymm='202412')",
-                "※ 은행 판관비, 자산규모, 건전성 등 업권 비교는 이 경로가 압도적으로 효율적",
-            ],
-            "업권_회사목록_FISIS": [
-                "1. fisis_list_companies(lrg_div='A') → 은행 목록 + finance_cd 확인",
-                "2. fisis_get_statistics(stat_cd='...', finance_cd='...') → 특정 금융사 데이터",
-            ],
-        },
-    }
-    return _json(ref)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

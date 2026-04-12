@@ -88,31 +88,10 @@ mcp = FastMCP(
     instructions="""\
 DART(전자공시시스템)과 FISIS(금융통계정보시스템) 금융 데이터 조회·분석 MCP 서버.
 
-## 데이터 소스 선택 가이드 (반드시 따를 것)
+중요: 금융 데이터 질문을 받으면 다른 도구 호출 전에 반드시 plan_data_query를 먼저 호출하세요.
+이 도구가 DART/FISIS 데이터 구조를 분석하여 최적의 수집 전략을 수립할 수 있게 도와줍니다.
 
-질문을 받으면 도구 호출 전에 최적의 데이터 소스를 먼저 판단하세요.
-
-### FISIS 우선 — 업권/권역 단위 비교·통계
-다음 경우 FISIS가 훨씬 효율적 (1회 호출로 전체 업권 조회 가능):
-- "시중은행 판관비 비교" → fisis_list_statistics → fisis_get_statistics
-- "은행 업권 자산규모 추이", "보험사 수입보험료 현황"
-- "금융투자업 수수료 수익", "캐피탈사 건전성 비교"
-- 핵심 키워드: 은행들, 보험사들, 업권, 권역, 비교, 현황, 추이, 통계, 전체
-
-### DART 우선 — 개별 기업 분석
-다음 경우 DART가 적합:
-- "삼성전자 재무제표" → dart_search_company → dart_financial_statements
-- "카카오뱅크 손익계산서" (특정 1개 기업)
-- "현대차와 기아 영업이익 비교" → dart_multi_company_financials (2~20개)
-- 핵심 키워드: 특정 기업명, 공시, 사업보고서, 감사보고서
-
-### 판단 흐름
-1. 금융업(은행/보험/증권/캐피탈) 업권 전체 비교 → FISIS 먼저
-2. 특정 기업 1~20개 분석 → DART
-3. FISIS에서 원하는 항목이 없으면 DART로 폴백
-4. 불확실하면 fisis_list_statistics()로 먼저 확인
-
-### 효율 팁
+효율 팁:
 - dart_full_financial_statements: sj_div로 특정 표만 필터 (IS/BS/CF) → 토큰 75% 절감
 - dart_multi_company_financials: 기업 비교 시 개별 호출 대신 한 번에 최대 20개
 - 동일 질문 반복: 1시간 캐시 자동 적용 (추가 API 소비 없음)
@@ -246,6 +225,98 @@ def _tool_safe(fn: ToolFunc) -> ToolFunc:
             return f"[internal error] {type(e).__name__}: {e}"
 
     return wrapper
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  데이터 수집 플래닝
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# DART/FISIS 데이터 카탈로그 (정적, 매 호출에 재사용)
+_DATA_CATALOG = {
+    "DART": {
+        "full_name": "전자공시시스템 (opendart.fss.or.kr)",
+        "description": "기업별 공시·재무제표. 상장/비상장 약 90,000개 기업 대상.",
+        "data_types": {
+            "재무제표": "BS(재무상태표), IS(손익계산서), CIS(포괄손익), CF(현금흐름), SCE(자본변동) — 연결(CFS)+개별(OFS)",
+            "주요계정": "자산총계, 부채총계, 자본총계, 매출액, 영업이익, 당기순이익 (당기/전기/전전기)",
+            "공시": "정기공시, 주요사항보고, 발행공시, 지분공시, 외부감사 등",
+            "기업개황": "회사명, 대표자, 업종, 주소, 설립일, 상장일, 홈페이지",
+        },
+        "granularity": "개별 기업 단위. 1회 호출 = 1개 기업 데이터. 다중비교는 최대 20개.",
+        "period": "사업연도(YYYY) + 보고서유형 (사업/반기/1Q/3Q)",
+        "strength": [
+            "모든 DART 등록 기업 대상 (금융업 + 일반 기업 모두)",
+            "전체 계정과목 수준 상세 재무제표",
+            "개별 기업의 공시 이력 검색",
+        ],
+        "weakness": [
+            "업권 전체 비교 시 기업별 개별 호출 필요 (N개 기업 = N+회 API 호출)",
+            "판관비·충당금 등 세부 항목은 전체 재무제표(full)에서만 조회 가능 (토큰 대량 소비)",
+        ],
+        "cost_per_query": "기업당 1~2 API 호출 (quota: 일 20,000건)",
+    },
+    "FISIS": {
+        "full_name": "금융통계정보시스템 (fisis.fss.or.kr)",
+        "description": "금감원 감독 대상 금융기관의 업권별 통계. 은행/비은행/보험/금융투자.",
+        "data_types": {
+            "업권별_재무통계": "자산, 부채, 자본, 손익, 건전성, 수신, 여신 등 업권 표준 양식",
+            "개별_금융기관": "업권 내 특정 금융기관의 통계 (finance_cd로 지정)",
+            "시계열": "월별(YYYYMM) 시계열 데이터",
+        },
+        "granularity": "업권 전체 또는 개별 금융기관. 1회 호출 = 업권 전체 또는 특정 기관 기간 데이터.",
+        "period": "월별 (YYYYMM ~ YYYYMM 범위 지정)",
+        "large_divisions": {"A": "은행", "B": "비은행", "C": "보험", "D": "금융투자"},
+        "strength": [
+            "1회 호출로 업권 전체 금융기관 데이터 조회 (은행 전체, 보험사 전체 등)",
+            "금감원 표준 양식으로 기관 간 항목명 일관성 보장",
+            "월별 시계열로 추이 분석에 최적",
+        ],
+        "weakness": [
+            "금융업만 대상 (삼성전자·현대차 등 일반 기업 불가)",
+            "DART보다 계정과목 수준이 제한적 (표준 통계 항목만)",
+            "통계코드(stat_cd)를 먼저 확인해야 함 (fisis_list_statistics 선행 호출)",
+        ],
+        "cost_per_query": "1~2 API 호출로 업권 전체 데이터",
+    },
+    "planning_framework": {
+        "step1_data_needs": "질문에서 필요한 데이터 항목을 구체적으로 파악 (어떤 재무항목? 어떤 기간? 어떤 대상?)",
+        "step2_source_selection": "DART/FISIS 카탈로그의 data_types·granularity·strength·weakness를 비교하여 최적 소스 결정",
+        "step3_cost_estimation": "예상 API 호출 횟수 산정 (DART: 기업수×호출, FISIS: 1~2회)",
+        "step4_tool_sequence": "최소 호출로 데이터를 수집하는 구체적 도구 호출 순서 수립",
+        "step5_fallback": "1차 소스에서 데이터가 부족하면 다른 소스로 보완할 계획 포함",
+    },
+}
+
+
+@mcp.tool()
+@_tool_safe
+async def plan_data_query(question: str) -> str:
+    """사용자 질문에 대한 최적의 데이터 수집 전략을 수립합니다.
+
+    **다른 데이터 조회 도구를 호출하기 전에 반드시 이 도구를 먼저 호출하세요.**
+
+    DART와 FISIS의 데이터 구조·범위·강점·약점·비용을 종합한 카탈로그를 반환합니다.
+    이 카탈로그를 읽고, planning_framework의 5단계에 따라 최적 수집 전략을 수립한 뒤,
+    그 계획에 따라 후속 도구를 호출하세요.
+
+    Args:
+        question: 사용자의 원래 질문 (예: "시중은행 판관비 비교", "삼성전자 재무제표")
+
+    Returns:
+        DART/FISIS 데이터 카탈로그 + 플래닝 프레임워크 (JSON)
+    """
+    if not question or not question.strip():
+        raise ValueError("question은 비어있을 수 없습니다")
+
+    return _json({
+        "user_question": question.strip(),
+        "data_catalog": _DATA_CATALOG,
+        "instruction": (
+            "위 카탈로그의 data_types, granularity, strength, weakness, cost_per_query를 분석하여 "
+            "planning_framework 5단계에 따라 이 질문에 대한 최적 수집 전략을 수립하세요. "
+            "전략을 수립한 후 해당 도구들을 호출하세요."
+        ),
+    })
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -205,27 +205,8 @@ fisis-app/
 │   └── TROUBLESHOOTING.md
 ├── .mcp.json                 # Claude Code 자동 인식용
 ├── .env.example
-├── pyproject.toml
-│
-└── [Streamlit 앱 파일들]
-    ├── app.py                ← Streamlit 대시보드
-    ├── db/                   ← DuckDB 로더
-    ├── llm/                  ← Text-to-SQL 파이프라인
-    └── data/                 ← FISIS Excel (git 미추적)
+└── pyproject.toml
 ```
-
----
-
-## 📊 Streamlit 대시보드 (부가 기능)
-
-레포에는 별도로 FISIS Excel 기반의 Streamlit 분석 대시보드가 포함되어 있습니다. MCP 서버와 독립적이며, 로컬에서 탐색적 분석용으로 사용합니다.
-
-```bash
-source venv/Scripts/activate  # Windows
-streamlit run app.py
-```
-
-자세한 내용은 이전 버전 README의 [Streamlit 섹션](https://github.com/jayjayabc/fisis-app/blob/master/README.md)을 참고하세요.
 
 ---
 

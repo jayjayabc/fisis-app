@@ -85,12 +85,38 @@ logger = logging.getLogger("financial_data_mcp")
 
 mcp = FastMCP(
     "financial-data",
-    instructions=(
-        "DART(전자공시시스템)과 FISIS(금융통계정보시스템) 금융 데이터 조회·분석. "
-        "한국 기업의 공시·재무제표·금융통계를 조회합니다. "
-        "효율 팁: dart_full_financial_statements는 sj_div 파라미터로 "
-        "특정 재무표(BS/IS/CF 등)만 필터하면 토큰 소비를 크게 줄일 수 있습니다."
-    ),
+    instructions="""\
+DART(전자공시시스템)과 FISIS(금융통계정보시스템) 금융 데이터 조회·분석 MCP 서버.
+
+## 데이터 소스 선택 가이드 (반드시 따를 것)
+
+질문을 받으면 도구 호출 전에 최적의 데이터 소스를 먼저 판단하세요.
+
+### FISIS 우선 — 업권/권역 단위 비교·통계
+다음 경우 FISIS가 훨씬 효율적 (1회 호출로 전체 업권 조회 가능):
+- "시중은행 판관비 비교" → fisis_list_statistics → fisis_get_statistics
+- "은행 업권 자산규모 추이", "보험사 수입보험료 현황"
+- "금융투자업 수수료 수익", "캐피탈사 건전성 비교"
+- 핵심 키워드: 은행들, 보험사들, 업권, 권역, 비교, 현황, 추이, 통계, 전체
+
+### DART 우선 — 개별 기업 분석
+다음 경우 DART가 적합:
+- "삼성전자 재무제표" → dart_search_company → dart_financial_statements
+- "카카오뱅크 손익계산서" (특정 1개 기업)
+- "현대차와 기아 영업이익 비교" → dart_multi_company_financials (2~20개)
+- 핵심 키워드: 특정 기업명, 공시, 사업보고서, 감사보고서
+
+### 판단 흐름
+1. 금융업(은행/보험/증권/캐피탈) 업권 전체 비교 → FISIS 먼저
+2. 특정 기업 1~20개 분석 → DART
+3. FISIS에서 원하는 항목이 없으면 DART로 폴백
+4. 불확실하면 fisis_list_statistics()로 먼저 확인
+
+### 효율 팁
+- dart_full_financial_statements: sj_div로 특정 표만 필터 (IS/BS/CF) → 토큰 75% 절감
+- dart_multi_company_financials: 기업 비교 시 개별 호출 대신 한 번에 최대 20개
+- 동일 질문 반복: 1시간 캐시 자동 적용 (추가 API 소비 없음)
+""",
 )
 
 
@@ -552,23 +578,32 @@ async def get_api_reference() -> str:
     API 파라미터에 필요한 코드를 한 번에 확인할 수 있습니다.
     """
     ref = {
+        "data_source_routing": {
+            "FISIS_우선": "업권 전체 비교/통계 (은행들, 보험사들, 금융투자 등). 1회 호출로 업권 전체 데이터.",
+            "DART_우선": "특정 기업 1~20개 분석 (삼성전자, 카카오뱅크 등). 기업별 상세 재무제표/공시.",
+            "판단기준": "금융업 업권 비교 → FISIS / 특정 기업 분석 → DART / 불확실 → fisis_list_statistics로 먼저 확인",
+        },
         "DART_REPORT": REPORT_CODES,
         "DART_CORP_CLASS": CORP_CLASS,
         "DART_SJ_DIV": SJ_DIV,
         "FISIS_LARGE_DIV": LARGE_DIVISIONS,
         "examples": {
-            "samsung_income_statement": [
+            "개별기업_재무제표_DART": [
                 "1. dart_search_company(name='삼성전자') -> corp_code=00126380",
                 "2. dart_full_financial_statements(corp_code='00126380', bsns_year='2024', sj_div='IS')",
             ],
-            "peer_comparison": [
+            "기업간_비교_DART": [
                 "1. dart_search_company 로 corp_code 2~20개 수집",
                 "2. dart_multi_company_financials(corp_codes=[...], bsns_year='2024')",
             ],
-            "bank_stats": [
-                "1. fisis_list_statistics(lrg_div='A') → 은행 통계목록",
-                "2. fisis_list_companies(lrg_div='A') → 은행 회사목록",
-                "3. fisis_get_statistics(stat_cd='<확인한코드>', strt_yymm='202401', end_yymm='202412')",
+            "업권_통계_FISIS": [
+                "1. fisis_list_statistics(lrg_div='A') → 은행 통계목록에서 stat_cd 확인",
+                "2. fisis_get_statistics(stat_cd='...', strt_yymm='202401', end_yymm='202412')",
+                "※ 은행 판관비, 자산규모, 건전성 등 업권 비교는 이 경로가 압도적으로 효율적",
+            ],
+            "업권_회사목록_FISIS": [
+                "1. fisis_list_companies(lrg_div='A') → 은행 목록 + finance_cd 확인",
+                "2. fisis_get_statistics(stat_cd='...', finance_cd='...') → 특정 금융사 데이터",
             ],
         },
     }

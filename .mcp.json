@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "financial-data": {
-      "command": "uv",
-      "args": ["--directory", ".", "run", "financial-data-mcp"]
+      "command": "python",
+      "args": ["-m", "financial_data_mcp"]
     }
   }
 }

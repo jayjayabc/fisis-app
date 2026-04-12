@@ -54,16 +54,43 @@ python scripts/preflight.py
 
 Python 버전, 패키지, API 키, 실제 DART/FISIS 접근 가능 여부까지 한 방에 진단합니다.
 
-### 4. Claude Code / Desktop 연결
+### 4. Claude Code 연결
 
-**Claude Code CLI**: 프로젝트 루트에 `.mcp.json`이 이미 포함되어 있으므로 프로젝트 디렉토리에서 `claude` 실행만 하면 자동 인식됩니다.
+#### 방법 A — 프로젝트 전용 (해당 폴더에서만 사용)
+
+프로젝트 루트에 `.mcp.json`이 포함되어 있으므로, 프로젝트 디렉토리에서 `claude`를 실행하면 자동 인식됩니다.
 
 ```bash
 cd fisis-app
 claude
 ```
 
-**Claude Desktop**: `claude_desktop_config.json`에 추가:
+#### 방법 B — 전역 등록 (⭐ 권장, 어디서든 사용)
+
+어느 디렉토리에서 `claude`를 열어도 DART/FISIS 도구를 쓸 수 있게 전역 등록합니다.
+
+**Windows (PowerShell)**:
+
+```powershell
+# 래퍼 스크립트 생성 + 전역 등록 (최초 1회)
+Set-Content -Path "$HOME\financial-data-mcp.cmd" -Value '@python -m financial_data_mcp %*'
+claude mcp add financial-data "$HOME\financial-data-mcp.cmd"
+```
+
+**macOS / Linux**:
+
+```bash
+# 래퍼 스크립트 생성 + 전역 등록 (최초 1회)
+echo '#!/bin/sh' > ~/financial-data-mcp.sh && echo 'python -m financial_data_mcp "$@"' >> ~/financial-data-mcp.sh
+chmod +x ~/financial-data-mcp.sh
+claude mcp add financial-data ~/financial-data-mcp.sh
+```
+
+등록 확인: `claude mcp list`에서 `financial-data`가 보이면 성공.
+
+#### 방법 C — Claude Desktop 앱
+
+`claude_desktop_config.json`에 추가:
 
 | OS | 경로 |
 |----|------|
@@ -74,14 +101,14 @@ claude
 {
   "mcpServers": {
     "financial-data": {
-      "command": "uv",
-      "args": ["--directory", "/absolute/path/to/fisis-app", "run", "financial-data-mcp"]
+      "command": "python",
+      "args": ["-m", "financial_data_mcp"]
     }
   }
 }
 ```
 
-> `.env` 파일이 프로젝트 루트에 있으면 API 키가 자동 로드됩니다. Claude Desktop config의 `env` 섹션에 직접 넣을 필요 없음.
+> `.env` 파일이 프로젝트 루트에 있으면 API 키가 자동 로드됩니다.
 
 ### 5. 테스트 질문
 
